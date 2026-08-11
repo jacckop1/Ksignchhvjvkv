@@ -96,6 +96,9 @@ struct SourcesView: View {
 				await viewModel.fetchSources(_sources, refresh: true)
 			}
 		}
+        .onAppear {
+            Storage.shared.initializeBuiltInSourcesIfNeeded()
+        }
 		.task(id: Array(_sources)) {
 			await viewModel.fetchSources(_sources)
 		}

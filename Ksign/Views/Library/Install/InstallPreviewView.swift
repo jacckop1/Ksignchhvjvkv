@@ -44,6 +44,9 @@ struct InstallPreviewView: View {
 			_status()
 		}
 		.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+		.background(Color(UIColor.secondarySystemBackground))
+        .cornerRadius(22.5)
+		.padding()
 		.sheet(isPresented: $_isWebviewPresenting) {
 			SafariRepresentableView(url: installer.pageEndpoint).ignoresSafeArea()
 		}

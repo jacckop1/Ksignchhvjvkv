@@ -41,4 +41,20 @@ extension Storage {
         generator.impactOccurred()
         completion(nil)
 	}
+    
+    // ← إضافة جديدة: جلب آخر IPA موقّع
+    func getLatestSignedURL() -> URL? {
+        let request: NSFetchRequest<Signed> = Signed.fetchRequest()
+        request.sortDescriptors = [NSSortDescriptor(keyPath: \Signed.date, ascending: false)]
+        request.fetchLimit = 1
+        return (try? context.fetch(request))?.first?.source
+    }
+
+    // جلب آخر تطبيق موقّع كـ Signed object (للتثبيت المباشر بعد التوقيع)
+    func getLatestSignedApp() -> Signed? {
+        let request: NSFetchRequest<Signed> = Signed.fetchRequest()
+        request.sortDescriptors = [NSSortDescriptor(keyPath: \Signed.date, ascending: false)]
+        request.fetchLimit = 1
+        return (try? context.fetch(request))?.first
+    }
 }

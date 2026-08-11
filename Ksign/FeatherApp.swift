@@ -84,10 +84,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         
         _createPipeline()
         _createSourcesDirectory()
-        if !UserDefaults.standard.bool(forKey: "hasInitializedBuiltInSources") {
-            _initializeBuiltInSources()
-            UserDefaults.standard.set(true, forKey: "hasInitializedBuiltInSources")
-        }
+        // Built-in sources are initialized only when the Store/Sources screen is opened.
+        // No network or Core Data work is started from AppDelegate.
         
         _clean()
         
@@ -181,29 +179,24 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     }
     
     private func _addDefaultCertificates() {
-            guard
-                UserDefaults.standard.bool(forKey: "feather.didImportDefaultCertificates") == false,
-                let signingAssetsURL = Bundle.main.url(forResource: "signing-assets", withExtension: nil)
-            else {
-                return
-            }
-            
+            guard let signingAssetsURL = Bundle.main.url(forResource: "signing-assets", withExtension: nil)
+            else { return }
+
             do {
                 let folderContents = try FileManager.default.contentsOfDirectory(
                     at: signingAssetsURL,
                     includingPropertiesForKeys: nil,
                     options: .skipsHiddenFiles
                 )
-                
+
                 for folderURL in folderContents {
                     guard folderURL.hasDirectoryPath else { continue }
-                    
+
                     let certName = folderURL.lastPathComponent
-                    
-                    let p12Url = folderURL.appendingPathComponent("cert.p12")
+                    let p12Url       = folderURL.appendingPathComponent("cert.p12")
                     let provisionUrl = folderURL.appendingPathComponent("cert.mobileprovision")
-                    let passwordUrl = folderURL.appendingPathComponent("cert.txt")
-                    
+                    let passwordUrl  = folderURL.appendingPathComponent("cert.txt")
+
                     guard
                         FileManager.default.fileExists(atPath: p12Url.path),
                         FileManager.default.fileExists(atPath: provisionUrl.path),
@@ -212,19 +205,29 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                         Logger.misc.warning("Skipping \(certName): missing required files")
                         continue
                     }
-                    
+
+                    // مفتاح فريد لكل شهادة مبني على SHA256 لملف p12
+                    // → كل نسخة محقونة بشهادة مختلفة تستورد شهادتها تلقائياً
+                    let p12Data = (try? Data(contentsOf: p12Url)) ?? Data()
+                    let hashKey = "feather.importedCert." + p12Data.sha256HexPrefix()
+
+                    guard UserDefaults.standard.bool(forKey: hashKey) == false else {
+                        Logger.misc.info("Cert \(certName) already imported, skipping")
+                        continue
+                    }
+
                     let password = try String(contentsOf: passwordUrl, encoding: .utf8)
-                    
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+
                     FR.handleCertificateFiles(
                         p12URL: p12Url,
                         provisionURL: provisionUrl,
                         p12Password: password,
-                        certificateName: certName,
+                        certificateName: certName
                     ) { _ in
-                        
+                        UserDefaults.standard.set(true, forKey: hashKey)
                     }
                 }
-                UserDefaults.standard.set(true, forKey: "feather.didImportDefaultCertificates")
             } catch {
                 Logger.misc.error("Failed to list signing-assets: \(error)")
             }

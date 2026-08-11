@@ -22,6 +22,9 @@ struct AppstoreView: View {
 		NavigationStack {
             SourceAppsView(fromAppStore: true, object: Array(_sources), viewModel: _viewModel)
 		}
+        .onAppear {
+            Storage.shared.initializeBuiltInSourcesIfNeeded()
+        }
 		.task(id: Array(_sources)) {
 			await _viewModel.fetchSources(_sources)
 		}

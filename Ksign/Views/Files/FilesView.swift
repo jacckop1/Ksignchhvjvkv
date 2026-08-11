@@ -32,6 +32,10 @@ struct FilesView: View {
     @State private var moveSingleFile: FileItem?
     @State private var shareItems: [Any] = []
     @State private var navigateToDirectoryURL: URL?
+    @State private var showingRequestSheet = false
+    @State private var requestName = ""
+    @State private var requestLink = ""
+    @State private var requestFeatures = ""
     
     // MARK: - Initializers
     
@@ -95,6 +99,7 @@ struct FilesView: View {
                 }
                 .toolbar {
                     ToolbarItemGroup(placement: .navigationBarTrailing) {
+                        requestButton
                         addButton
                         editButton
                     }
@@ -167,6 +172,14 @@ struct FilesView: View {
         .fullScreenCover(item: $quickLookFileURL) { fileURL in
             QuickLookPreview(fileURL: fileURL)
                 .compatNavigationTransition(id: fileURL.absoluteString, ns: _namespace)
+        }
+        .sheet(isPresented: $showingRequestSheet) {
+            AppRequestView(
+                isPresented: $showingRequestSheet,
+                appName: $requestName,
+                appLink: $requestLink,
+                appFeatures: $requestFeatures
+            )
         }
     }
     
@@ -283,12 +296,24 @@ struct FilesView: View {
             } label: {
                 Label(String(localized: "New Text File"), systemImage: "doc.badge.plus")
             }
+            
         } label: {
             Image(systemName: "plus")
         }
         .menuStyle(BorderlessButtonMenuStyle())
         .menuIndicator(.hidden)
         .buttonStyle(.plain)
+    }
+    
+    private var requestButton: some View {
+        Button {
+            requestName = ""
+            requestLink = ""
+            requestFeatures = ""
+            showingRequestSheet = true
+        } label: {
+            Label(String(localized: "طلب تطبيق"), systemImage: "paperplane.fill")
+        }
     }
     
     private var editButton: some View {

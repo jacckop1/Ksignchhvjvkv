@@ -8,6 +8,7 @@
 import SwiftUI
 import NimbleExtensions
 import NimbleViews
+import ZIPFoundation
 
 // MARK: - View
 struct LibraryCellView: View {
@@ -24,10 +25,19 @@ struct LibraryCellView: View {
 	@Binding var selectedAppDylibsPresenting: AnyApp?
 	@Binding var selectedApps: Set<String>
 	@State private var _showActionSheet = false
+    @State private var _showCertInject = false
+
+    private var _certName: String? {
+        Storage.shared.getCertificate(from: app)?.nickname
+    }
+
+    // اسم الشهادة المستخرج من embedded.mobileprovision داخل IPA
+    @State private var _importedCertName: String? = nil
 	
 	private var _isSelected: Bool {
 		selectedApps.contains(app.uuid ?? "")
 	}
+
 	// MARK: Body
 	var body: some View {
         let isEditing = editMode?.wrappedValue == .active
@@ -45,11 +55,24 @@ struct LibraryCellView: View {
 			
 			FRAppIconView(app: app, size: 57)
 			
-			NBTitleWithSubtitleView(
-				title: app.name ?? .localized("Unknown"),
-				subtitle: _desc,
-				linelimit: 0
-			)
+			VStack(alignment: .leading, spacing: 2) {
+				NBTitleWithSubtitleView(
+					title: app.name ?? .localized("Unknown"),
+					subtitle: _desc,
+					linelimit: 0
+				)
+                // ← للموقّعة: اسم الشهادة من CoreData | للمستوردة: مستخرج من IPA
+                if let name = app.isSigned ? _certName : _importedCertName {
+                    HStack(spacing: 3) {
+                        Image(systemName: "signature")
+                            .font(.system(size: 9))
+                        Text(name)
+                            .font(.caption2)
+                    }
+                    .foregroundColor(.secondary.opacity(0.75))
+                    .lineLimit(1)
+                }
+			}
 			
 			Spacer()
 			
@@ -58,9 +81,9 @@ struct LibraryCellView: View {
 					HStack(spacing: 4) {
 						Image(systemName: "clock")
 							.font(.system(size: 11))
-	                    Text(certInfo.formatted)
-							.font(.system(size: 12))
-							.fontWeight(.semibold)
+                        Text(certInfo.formatted)
+						.font(.system(size: 12))
+						.fontWeight(.semibold)
 					}
 					.foregroundColor(.white)
 					.padding(.horizontal, 10)
@@ -77,6 +100,12 @@ struct LibraryCellView: View {
 		}
 		.scaleEffect(_isSelected ? 0.98 : 1.0)
 		.contentShape(Rectangle())
+        // قراءة الشهادة عند الظهور للتطبيقات المستوردة فقط
+        .onAppear {
+            if !app.isSigned {
+                _readCertNameFromIPA()
+            }
+        }
 		.onTapGesture {
 			if isEditing {
 				_toggleSelection()
@@ -107,25 +136,79 @@ struct LibraryCellView: View {
 				_actions(for: app)
 			}
 		}
+        .sheet(isPresented: $_showCertInject) {
+            CertificateInjectView(app: app) {
+                // بعد الحقن مباشرة للتوقيع
+                selectedSigningAppPresenting = AnyApp(base: app)
+            }
+        }
 	}
 	
 	private var _desc: String {
-		if
-			let version = app.version,
-			let id = app.identifier
-		{
+		if let version = app.version, let id = app.identifier {
 			return "\(version) • \(id)"
 		} else {
 			return .localized("Unknown")
 		}
 	}
+
+    // MARK: - قراءة اسم الشهادة من embedded.mobileprovision داخل IPA
+    private func _readCertNameFromIPA() {
+        guard
+            let imported = app as? Imported,
+            let source = imported.source
+        else { return }
+
+        Task.detached(priority: .background) {
+            let name = Self._extractSigningInfo(from: source)
+            await MainActor.run {
+                _importedCertName = name
+            }
+        }
+    }
+
+    /// يفتح الـ IPA ويقرأ embedded.mobileprovision ويستخرج اسم المطوّر/الشهادة
+    private static func _extractSigningInfo(from ipaURL: URL) -> String? {
+        guard let archive = Archive(url: ipaURL, accessMode: .read) else { return nil }
+
+        // نبحث عن embedded.mobileprovision داخل Payload/*.app/
+        guard let entry = archive.first(where: {
+            $0.path.contains(".app/embedded.mobileprovision")
+        }) else { return nil }
+
+        // نستخرج محتوى الملف
+        var data = Data()
+        _ = try? archive.extract(entry, consumer: { chunk in data.append(chunk) })
+        guard !data.isEmpty else { return nil }
+
+        // mobileprovision هو DER/CMS — الـ plist مضمّن كنص ASCII في المنتصف
+        guard let text = String(data: data, encoding: .ascii) else { return nil }
+
+        guard
+            let start = text.range(of: "<?xml"),
+            let end   = text.range(of: "</plist>")
+        else { return nil }
+
+        let xmlString = String(text[start.lowerBound...end.upperBound])
+        guard
+            let xmlData = xmlString.data(using: .utf8),
+            let plist   = try? PropertyListSerialization.propertyList(from: xmlData, format: nil) as? [String: Any]
+        else { return nil }
+
+        // نرتّب الأولويات: TeamName أوضح، ثم AppIDName كبديل
+        if let teamName = plist["TeamName"] as? String, !teamName.isEmpty {
+            return teamName
+        }
+        if let appIDName = plist["AppIDName"] as? String, !appIDName.isEmpty {
+            return appIDName
+        }
+        return nil
+    }
 	
 	private func _toggleSelection() {
 		guard let uuid = app.uuid else { return }
-		
 		let impactFeedback = UIImpactFeedbackGenerator(style: .light)
 		impactFeedback.impactOccurred()
-		
 		withAnimation(.spring(response: 0.4, dampingFraction: 0.8, blendDuration: 0)) {
 			if _isSelected {
 				selectedApps.remove(uuid)
@@ -174,6 +257,9 @@ extension LibraryCellView {
 				selectedInstallAppPresenting = AnyApp(base: app)
 			}
 		}
+		Button(.localized("حقن الشهادة"), systemImage: "syringe") {
+			_showCertInject = true
+		}
 	}
 	
 	@ViewBuilder
@@ -182,17 +268,14 @@ extension LibraryCellView {
 			Button(.localized("Install")) {
 				selectedInstallAppPresenting = AnyApp(base: app)
 			}
-			
 			if let id = app.identifier {
 				Button(.localized("Open")) {
 					UIApplication.openApp(with: id)
 				}
 			}
-			
 			Button(.localized("Re-sign")) {
 				selectedSigningAppPresenting = AnyApp(base: app)
 			}
-			
 			Button(.localized("Export")) {
 				selectedInstallAppPresenting = AnyApp(base: app, archive: true)
 			}
@@ -200,24 +283,22 @@ extension LibraryCellView {
 			Button(.localized("Sign & Install")) {
 				selectedSigningAppPresenting = AnyApp(base: app, signAndInstall: true)
 			}
-			
 			Button(.localized("Sign")) {
 				selectedSigningAppPresenting = AnyApp(base: app)
 			}
-			
 			Button(.localized("Export")) {
 				selectedInstallAppPresenting = AnyApp(base: app, archive: true)
 			}
 		}
-		
-		Button(.localized("Show Dylibs")) {
+		Button(.localized("حقن الشهادة")) {
+			_showCertInject = true
+		}
+		Button("الديلبات الحالية") {
 			selectedAppDylibsPresenting = AnyApp(base: app)
 		}
-		
 		Button(.localized("Get Info")) {
 			selectedInfoAppPresenting = AnyApp(base: app)
 		}
-		
 		Button(.localized("Delete"), role: .destructive) {
 			Storage.shared.deleteApp(for: app)
 		}

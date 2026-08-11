@@ -40,6 +40,7 @@ class Download: Identifiable, @unchecked Sendable, ObservableObject {
 	}
     var task: URLSessionDownloadTask?
     var resumeData: Data?
+    var intent: DownloadIntent = .downloadOnly
 	
 	let id: String
 	let url: URL
@@ -49,12 +50,14 @@ class Download: Identifiable, @unchecked Sendable, ObservableObject {
     init(
 		id: String,
 		url: URL,
-		onlyArchiving: Bool = false
+		onlyArchiving: Bool = false,
+        intent: DownloadIntent = .downloadOnly
 	) {
 		self.id = id
         self.url = url
 		self.onlyArchiving = onlyArchiving
         self.fileName = url.lastPathComponent
+        self.intent = intent
     }
 }
 
@@ -87,14 +90,15 @@ class DownloadManager: NSObject, ObservableObject {
     
     func startDownload(
 		from url: URL,
-		id: String = UUID().uuidString
+		id: String = UUID().uuidString,
+        intent: DownloadIntent = .downloadOnly
 	) -> Download {
         if let existingDownload = downloads.first(where: { $0.url == url }) {
             resumeDownload(existingDownload)
             return existingDownload
         }
         print(id)
-		let download = Download(id: id, url: url)
+		let download = Download(id: id, url: url, intent: intent)
         
         let task = _session.downloadTask(with: url)
         download.task = task
@@ -193,7 +197,24 @@ extension DownloadManager: URLSessionDownloadDelegate {
 					DownloadManager.shared.downloads.remove(at: index)
 				}
 				if err == nil {
-					self._notifyDownloadCompleted(fileName: url.lastPathComponent)
+					let intent = dl?.intent ?? .downloadOnly
+                        self._notifyDownloadCompleted(fileName: url.lastPathComponent)
+                        switch intent {
+                        case .downloadOnly:
+                            break
+                        case .downloadAndSign:
+                            NotificationCenter.default.post(
+                                name: NSNotification.Name("ksign.openSigningForLatestApp"),
+                                object: nil,
+                                userInfo: ["fileName": url.lastPathComponent]
+                            )
+                        case .downloadAndInstall:
+                            NotificationCenter.default.post(
+                                name: NSNotification.Name("ksign.signAndInstallLatest"),
+                                object: nil,
+                                userInfo: ["fileName": url.lastPathComponent]
+                            )
+                        }
 				}
 				completion(err)
 			}

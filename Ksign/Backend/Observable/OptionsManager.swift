@@ -102,8 +102,6 @@ struct Options: Codable, Equatable {
 	var extractionLibrary: String?
     /// Modifies app to support liquid glass
     var experiment_supportLiquidGlass: Bool
-	/// Modifies app to disable liquid glass
-	var experiment_disableLiquidGlass: Bool
     /// Modifies application to use ElleKit instead of CydiaSubstrate
     var experiment_replaceSubstrateWithEllekit: Bool
     /// If Ksign should use background audio
@@ -142,20 +140,19 @@ struct Options: Codable, Equatable {
 		ipadFullscreen: false,
 		removeSupportedDevices: true,
 		removeURLScheme: false,
-		removeProvisioning: true,
+		removeProvisioning: false,
 		removeWatchPlaceholder: false,
 		changeLanguageFilesForCustomDisplayName: false,
 		doAdhocSigning: false,
 		removeApp: false,
         onlyModify: false,
 		useLastExportLocation: false,
-		extractionLibrary: "Zip",
+		extractionLibrary: "ZIPFoundation", // ← تغيير
         experiment_supportLiquidGlass: false,
-		experiment_disableLiquidGlass: false,
         experiment_replaceSubstrateWithEllekit: false,
         backgroundAudio: true,
         signingLogs: false,
-        notifications: false,
+        notifications: true, // ← تغيير
         prefix: nil,
         suffix: nil,
         saveAppStoreDownloadsToDownloadsFolder: true,

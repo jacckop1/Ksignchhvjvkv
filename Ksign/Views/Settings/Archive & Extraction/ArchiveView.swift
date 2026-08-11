@@ -4,23 +4,22 @@
 //
 //  Created by samara on 6.05.2025.
 //
-
 import SwiftUI
 import Zip
 import NimbleViews
 
 struct ArchiveView: View {
-	@AppStorage("Feather.compressionLevel") private var _compressionLevel: Int = ZipCompression.DefaultCompression.rawValue
+	@AppStorage("Feather.compressionLevel") private var _compressionLevel: Int = ZipCompression.BestSpeed.rawValue
 	@AppStorage("Feather.useShareSheetForArchiving") private var _useShareSheet: Bool = true
 	@AppStorage("Feather.useLastExportLocation") private var _useLastExportLocation: Bool = false
-	@AppStorage("Feather.extractionLibrary") private var _extractionLibrary: String = "Zip"
+	@AppStorage("Feather.extractionLibrary") private var _extractionLibrary: String = "ZipFoundation"
     
     var body: some View {
 		NBList(.localized("Archive & Extraction")) {
 			Section {
 				Picker(.localized("Compression Level"), systemImage: "archivebox", selection: $_compressionLevel) {
 					ForEach(ZipCompression.allCases, id: \.rawValue) { level in
-						Text(level.label).tag(level)
+						Text(level.label).tag(level.rawValue)
 					}
 				}
 			}
@@ -36,7 +35,7 @@ struct ArchiveView: View {
             } footer: {
                 Text(.localized("Whether to remember the last location where a file was copied/moved to or use Ksign's documents folder as default."))
             }
-
+            
             Section {
                 Picker(.localized("Extraction Library"), systemImage: "archivebox.circle.fill", selection: $_extractionLibrary) {
                     ForEach(Options.extractionLibraryValues, id: \.self) { value in

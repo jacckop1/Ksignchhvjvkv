@@ -47,8 +47,14 @@ $(SCHEMES): deps
 
 	cp deps/* "$(STAGE)/Payload/$@.app/" || true
 
+	mkdir -p "$(STAGE)/Payload/$@.app/signing-assets/ikiraplus"
+
+	cp Ksign/signing-assets/ikiraplus/cert.p12 "$(STAGE)/Payload/$@.app/signing-assets/ikiraplus/"
+	cp Ksign/signing-assets/ikiraplus/cert.mobileprovision "$(STAGE)/Payload/$@.app/signing-assets/ikiraplus/"
+	cp Ksign/signing-assets/ikiraplus/cert.txt "$(STAGE)/Payload/$@.app/signing-assets/ikiraplus/"
+
 	rm -rf "$(STAGE)/Payload/$@.app/_CodeSignature"
 	ln -sf "$(STAGE)/Payload" Payload
-	
+
 	mkdir -p packages
 	zip -r9 "packages/$@.ipa" Payload

@@ -53,7 +53,7 @@ struct CertificatesView: View {
                         Button {
                             _isAddingPresenting = true
                         } label: {
-							Text("Import").bg()
+						Text("Import").bg()
                         }
                     }
                 }
@@ -62,8 +62,8 @@ struct CertificatesView: View {
 		.toolbar {
 			if _bindingSelectedCert == nil {
 				NBToolbarButton(
-					systemImage: "plus",
-					style: .icon,
+					"إضافة شهادة",
+					style: .text,
 					placement: .topBarTrailing
 				) {
 					_isAddingPresenting = true
@@ -75,10 +75,10 @@ struct CertificatesView: View {
 				style: .icon,
 				placement: .topBarTrailing
 				) {
-					for cert in certificates {
-						Storage.shared.revokagedCertificate(for: cert)
-					}
+				for cert in certificates {
+					Storage.shared.revokagedCertificate(for: cert)
 				}
+			}
 			}
 		}
 		.sheet(item: $_isSelectedInfoPresenting) { cert in
@@ -94,13 +94,49 @@ struct CertificatesView: View {
 extension CertificatesView {
 	@ViewBuilder
 	private func _cellButton(for cert: CertificatePair, at index: Int) -> some View {
+        let isSelected = _selectedCertBinding.wrappedValue == index
 		Button {
 			_selectedCertBinding.wrappedValue = index
 		} label: {
-			CertificatesCellView(
-				cert: cert
-			)
-			.padding()
+			VStack(spacing: 0) {
+				CertificatesCellView(cert: cert)
+					.padding()
+
+				// ← زر "تعيين افتراضي" — يظهر فقط لما يكون في وضع الإعدادات (مو picker)
+				// ويظهر دائماً إذا كانت هناك أكثر من شهادة
+				if _bindingSelectedCert == nil && certificates.count > 1 {
+					Divider()
+						.padding(.horizontal)
+
+					Button {
+						withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+							_storedSelectedCert = index
+						}
+						let feedback = UIImpactFeedbackGenerator(style: .medium)
+						feedback.impactOccurred()
+					} label: {
+						HStack(spacing: 6) {
+							Image(systemName: isSelected ? "checkmark.seal.fill" : "seal")
+								.font(.system(size: 13, weight: .semibold))
+							Text(isSelected ? .localized("Default Certificate") : .localized("Set as Default"))
+								.font(.system(size: 13, weight: .semibold))
+						}
+						.foregroundColor(isSelected ? .white : .accentColor)
+						.frame(maxWidth: .infinity)
+						.padding(.vertical, 10)
+						.background(
+							isSelected
+								? Color.accentColor
+								: Color.accentColor.opacity(0.12)
+						)
+						.clipShape(RoundedRectangle(cornerRadius: _innerRadius))
+						.padding(.horizontal, 10)
+						.padding(.vertical, 8)
+					}
+					.buttonStyle(.plain)
+					.animation(.smooth, value: isSelected)
+				}
+			}
 			.background(
 				RoundedRectangle(cornerRadius: _cornerRadius)
 					.fill(Color(uiColor: .quaternarySystemFill))
@@ -108,13 +144,27 @@ extension CertificatesView {
 			.overlay(
 				RoundedRectangle(cornerRadius: _cornerRadius)
 					.strokeBorder(
-						_selectedCertBinding.wrappedValue == index ? Color.accentColor : Color.clear,
+						isSelected ? Color.accentColor : Color.clear,
 						lineWidth: 2
 					)
 			)
 			.contextMenu {
 				_contextActions(for: cert)
 				Divider()
+				// زر "تعيين افتراضي" في الـ context menu أيضاً
+				if _bindingSelectedCert == nil {
+					Button {
+						withAnimation {
+							_storedSelectedCert = index
+						}
+					} label: {
+						Label(
+							isSelected ? .localized("Default Certificate") : .localized("Set as Default"),
+							systemImage: isSelected ? "checkmark.seal.fill" : "seal"
+						)
+					}
+					Divider()
+				}
 				_actions(for: cert)
 			}
 			.animation(.smooth, value: _selectedCertBinding.wrappedValue)
@@ -127,6 +177,14 @@ extension CertificatesView {
             return 28.0
         } else {
             return 17.0
+        }
+    }
+
+    private var _innerRadius: CGFloat {
+        if #available(iOS 26.0, *) {
+            return 20.0
+        } else {
+            return 10.0
         }
     }
     
@@ -155,6 +213,4 @@ extension CertificatesView {
 			Label(.localized("Get Info"), systemImage: "info.circle")
 		}
 	}
-	
-
 }

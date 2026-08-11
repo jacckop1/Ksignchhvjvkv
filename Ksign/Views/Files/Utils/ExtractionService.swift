@@ -125,7 +125,13 @@ class ExtractionService {
     }
     
     private static func _selectedExtractionLibrary() -> String {
-        return UserDefaults.standard.string(forKey: "Feather.extractionLibrary") ?? "Zip"
+        // إجبار الترقية لـ ZIPFoundation لكل المستخدمين القدامى والجدد
+        let migratedKey = "Feather.extractionLibraryMigratedToZIPFoundation"
+        if !UserDefaults.standard.bool(forKey: migratedKey) {
+            UserDefaults.standard.set("ZIPFoundation", forKey: "Feather.extractionLibrary")
+            UserDefaults.standard.set(true, forKey: migratedKey)
+        }
+        return UserDefaults.standard.string(forKey: "Feather.extractionLibrary") ?? "ZIPFoundation"
     }
     
     private static func _Zip(
@@ -252,4 +258,4 @@ enum ExtractionError: LocalizedError {
             return "Extraction failed: \(message)"
         }
     }
-} 
+}

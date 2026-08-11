@@ -11,6 +11,7 @@ import Zsign
 import NimbleJSON
 import AltSourceKit
 import IDeviceSwift
+import Security
 
 enum FR {
 	static func handlePackageFile(
@@ -106,17 +107,16 @@ enum FR {
 		with password: String,
 		using provision: URL
 	) -> Bool {
-		defer {
-			password_check_fix_WHAT_THE_FUCK_free(provision.path)
-		}
-		
-		password_check_fix_WHAT_THE_FUCK(provision.path)
-		
-		if (!p12_password_check(key.path, password)) {
-			return false
-		}
-		
-		return true
+		guard let p12Data = try? Data(contentsOf: key) else { return false }
+		return _checkP12Password(p12Data: p12Data, password: password)
+	}
+
+	/// يتحقق من كلمة مرور P12 عبر Security framework — يدعم كل الرموز بما فيها النقاط
+	private static func _checkP12Password(p12Data: Data, password: String) -> Bool {
+		let options: [String: Any] = [kSecImportExportPassphrase as String: password]
+		var items: CFArray?
+		let status = SecPKCS12Import(p12Data as CFData, options as CFDictionary, &items)
+		return status == errSecSuccess
 	}
 	
 	static func checkPasswordForCertificateData(
@@ -124,24 +124,7 @@ enum FR {
 		provisionData: Data,
 		password: String
 	) -> Bool {
-		let tempDir = FileManager.default.temporaryDirectory
-		let tempP12 = tempDir.appendingPathComponent("temp_cert.p12")
-		let tempProvision = tempDir.appendingPathComponent("temp_provision.mobileprovision")
-		
-		defer {
-			try? FileManager.default.removeItem(at: tempP12)
-			try? FileManager.default.removeItem(at: tempProvision)
-		}
-		
-		do {
-			try p12Data.write(to: tempP12)
-			try provisionData.write(to: tempProvision)
-			
-			return checkPasswordForCertificate(for: tempP12, with: password, using: tempProvision)
-		} catch {
-			print("Error creating temporary files for password check: \(error)")
-			return false
-		}
+		return _checkP12Password(p12Data: p12Data, password: password)
 	}
 	
 	static func movePairing(_ url: URL) {
@@ -191,31 +174,56 @@ enum FR {
 	
 	static func handleSource(
 		_ urlString: String,
+		showAlerts: Bool = true,
 		competion: @escaping () -> Void
 	) {
-		guard let url = URL(string: urlString) else { return }
-		
+		guard let url = URL(string: urlString) else {
+			competion()
+			return
+		}
+
 		NBFetchService().fetch<ASRepository>(from: url) { (result: Result<ASRepository, Error>) in
 			switch result {
 			case .success(let data):
-				let id = data.id ?? url.absoluteString
-				
-				if !Storage.shared.sourceExists(id) {
-					Storage.shared.addSource(url, repository: data, id: id) { _ in
+				// Storage.viewContext is a main-queue context. Never touch it from
+				// URLSession's background callback.
+				Storage.shared.context.perform {
+					let id = data.id ?? url.absoluteString
+
+					if !Storage.shared.sourceExists(id) {
+						Storage.shared.addSource(url, repository: data, id: id) { _ in
+							competion()
+						}
+					} else {
+						if showAlerts {
+							Self._showSourceAlertSafely(message: "Repository already added.")
+						}
 						competion()
 					}
-				} else {
-					DispatchQueue.main.async {
-						UIAlertController.showAlertWithOk(title: "Error", message: "Repository already added.")
-					}
 				}
+
 			case .failure(let error):
-				DispatchQueue.main.async {
-					UIAlertController.showAlertWithOk(title: "Error", message: error.localizedDescription)
+				if showAlerts {
+					Self._showSourceAlertSafely(message: error.localizedDescription)
 				}
+				competion()
 			}
 		}
 	}
+
+	/// Built-in sources are loaded during startup. At that moment a root view
+	/// controller might not exist yet, so never force-unwrap the presenter.
+	private static func _showSourceAlertSafely(message: String) {
+		DispatchQueue.main.async {
+			guard let presenter = UIApplication.topViewController() else { return }
+			UIAlertController.showAlertWithOk(
+				presenter,
+				title: "Error",
+				message: message
+			)
+		}
+	}
+
 }
 
 private enum CertificateHandlerError: Error {

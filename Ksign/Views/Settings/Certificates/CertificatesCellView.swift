@@ -42,6 +42,7 @@ extension CertificatesCellView {
 	@ViewBuilder
 	private func _certInfoPill(data: CertificatePair) -> some View {
 		let pillItems = _buildPills(from: data)
+        let daysLeft = _daysLeft(from: data)
 		HStack(spacing: 6) {
 			ForEach(pillItems.indices, id: \.hashValue) { index in
 				let pill = pillItems[index]
@@ -53,8 +54,44 @@ extension CertificatesCellView {
 					count: pillItems.count
 				)
 			}
+            
+            // زر تجديد الشهادة - يظهر فقط إذا بقي أقل من 90 يوم
+            if let days = daysLeft, days < 90 {
+                Button {
+                    if let url = URL(string: "https://t.me/ikira18") {
+                        UIApplication.shared.open(url)
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.clockwise.circle.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("تجديد الشهادة")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(
+                        LinearGradient(
+                            colors: [Color(red: 0.2, green: 0.6, blue: 1.0), Color(red: 0.1, green: 0.4, blue: 0.9)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .foregroundStyle(.white)
+                    .clipShape(Capsule())
+                    .shadow(color: Color(red: 0.1, green: 0.4, blue: 0.9).opacity(0.35), radius: 4, x: 0, y: 2)
+                }
+                .buttonStyle(.plain)
+            }
 		}
 	}
+    
+    private func _daysLeft(from cert: CertificatePair) -> Int? {
+        guard let expiration = cert.expiration else { return nil }
+        let timeLeft = expiration.timeIntervalSince(.now)
+        guard timeLeft > 0 else { return 0 }
+        return Int(timeLeft / 86400)
+    }
 	
 	private func _buildPills(from cert: CertificatePair) -> [NBPillItem] {
 		var pills: [NBPillItem] = []

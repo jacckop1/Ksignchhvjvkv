@@ -5,10 +5,7 @@
 //  Created by Nagata Asami on 5/22/25.
 //
 
-
-
 import SwiftUI
-
 
 class FilesViewModel: ObservableObject {
     @Published var files: [FileItem] = []
@@ -36,7 +33,6 @@ class FilesViewModel: ObservableObject {
     @Published var sortOption: SortOption = .name
     @Published var sortAscending: Bool = true
     
-    
     init(directory: URL? = nil) {
         if let directory = directory {
             self.currentDirectory = directory
@@ -45,8 +41,37 @@ class FilesViewModel: ObservableObject {
         } else {
             self.currentDirectory = URL(fileURLWithPath: "")
         }
+        
+        copyBuiltInPDFIfNeeded()
     }
     
+    // MARK: - Built-in PDFs
+    private func copyBuiltInPDFIfNeeded() {
+        guard let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        
+        // Map: (bundle resource name, output file name)
+        let pdfFiles: [(resource: String, output: String)] = [
+            ("guide",         "HowToAddCert.pdf"),
+            ("guide1",        "HowToSignIPA.pdf"),
+            ("guide2",        "IPAsource.pdf")
+        ]
+        
+        for entry in pdfFiles {
+            let destinationURL = documentsDirectory.appendingPathComponent(entry.output)
+            guard !FileManager.default.fileExists(atPath: destinationURL.path) else { continue }
+            guard let sourceURL = Bundle.main.url(forResource: entry.resource, withExtension: "pdf") else {
+                print("PDF \(entry.resource).pdf not found in bundle")
+                continue
+            }
+            do {
+                try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+            } catch {
+                print("Failed to copy \(entry.output): \(error)")
+            }
+        }
+    }
+    
+    // MARK: - Load Files
     func loadFiles() {
         let fileManager = FileManager.default
         
@@ -80,19 +105,15 @@ class FilesViewModel: ObservableObject {
         }
     }
     
-
-    
+    // MARK: - Delete
     func deleteFile(_ fileItem: FileItem) {
         delete(items: [fileItem])
     }
     
     func deleteSelectedItems() {
         guard !selectedItems.isEmpty else { return }
-        
         let itemsToDelete = Array(selectedItems)
-        
         delete(items: itemsToDelete)
-
         selectedItems.removeAll()
         if isEditMode == .active {
             isEditMode = .inactive
@@ -109,7 +130,6 @@ class FilesViewModel: ObservableObject {
             for item in items {
                 do {
                     try fileManager.removeItem(at: item.url)
-                    
                     DispatchQueue.main.async {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                             if let index = self.files.firstIndex(where: { $0.url == item.url }) {
@@ -132,6 +152,7 @@ class FilesViewModel: ObservableObject {
         }
     }
     
+    // MARK: - Create
     func createNewFolder(name: String) {
         guard !name.isEmpty else { return }
         
@@ -162,7 +183,7 @@ class FilesViewModel: ObservableObject {
             try Data().write(to: finalURL)
             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                 loadFiles()
-            }       
+            }
         } catch {
             DispatchQueue.main.async {
                 UIAlertController.showAlertWithOk(title: .localized("Error"), message: .localized("Error creating text file: \(error.localizedDescription)"))
@@ -170,6 +191,7 @@ class FilesViewModel: ObservableObject {
         }
     }
     
+    // MARK: - Rename
     func renameFile(newName: String, item: FileItem) {
         guard !newName.isEmpty else { return }
         
@@ -188,7 +210,7 @@ class FilesViewModel: ObservableObject {
         }
     }
     
-
+    // MARK: - Certificate
     func importCertificate(_ file: FileItem) {
         guard file.isP12Certificate else { return }
         
@@ -233,12 +255,7 @@ class FilesViewModel: ObservableObject {
         }
     }
     
-    
-    private func sanitizeFileName(_ name: String) -> String {
-        let invalidCharacters = CharacterSet(charactersIn: "/:?*<>|\"\\")
-        return name.components(separatedBy: invalidCharacters).joined()
-    }
-    
+    // MARK: - Import
     func importFiles(urls: [URL]) {
         guard !urls.isEmpty else { return }
         
@@ -251,10 +268,8 @@ class FilesViewModel: ObservableObject {
                     guard fileManager.fileExists(atPath: url.path) else {
                         throw NSError(domain: "FileImportError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Source file not accessible: \(url.lastPathComponent)"])
                     }
-                    
                     let destinationURL = self.currentDirectory.appendingPathComponent(url.lastPathComponent)
                     let finalDestinationURL = self.generateUniqueFileName(for: destinationURL)
-                    
                     try self.importSingleItem(from: url, to: finalDestinationURL)
                 } catch {
                     failureCount += 1
@@ -274,27 +289,58 @@ class FilesViewModel: ObservableObject {
     
     private func importSingleItem(from sourceURL: URL, to destinationURL: URL) throws {
         let fileManager = FileManager.default
-        
         guard fileManager.fileExists(atPath: sourceURL.path) else {
-            throw NSError(
-                domain: "FileImportError",
-                code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "Source does not exist: \(sourceURL.path)"]
-            )
+            throw NSError(domain: "FileImportError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Source does not exist: \(sourceURL.path)"])
         }
-        
         do {
             try fileManager.copyItem(at: sourceURL, to: destinationURL)
         } catch {
-            throw NSError(
-                domain: "FileImportError",
-                code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "Failed to copy file: \(error.localizedDescription)"]
-            )
+            throw NSError(domain: "FileImportError", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to copy file: \(error.localizedDescription)"])
         }
     }
     
-
+    // MARK: - Archive
+    func extractArchive(_ file: FileItem) {
+        guard file.isArchive else { return }
+        NotificationCenter.default.post(name: NSNotification.Name("ExtractionStarted"), object: nil)
+        ExtractionService.extractArchive(file, to: currentDirectory) { [weak self] result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success:
+                    NotificationCenter.default.post(name: NSNotification.Name("ExtractionCompleted"), object: nil)
+                    withAnimation { self?.loadFiles() }
+                    UIAlertController.showAlertWithOk(title: .localized("Success"), message: .localized("File extracted successfully"))
+                case .failure(let error):
+                    NotificationCenter.default.post(name: NSNotification.Name("ExtractionFailed"), object: nil)
+                    UIAlertController.showAlertWithOk(title: .localized("Error"), message: .localized("Error extracting archive: \(error.localizedDescription)"))
+                }
+            }
+        }
+    }
+    
+    func packageAppAsIPA(_ file: FileItem) {
+        guard file.isAppDirectory else { return }
+        NotificationCenter.default.post(name: NSNotification.Name("ExtractionStarted"), object: nil)
+        ExtractionService.packageAppAsIPA(file, to: currentDirectory) { [weak self] result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let ipaFileName):
+                    NotificationCenter.default.post(name: NSNotification.Name("ExtractionCompleted"), object: nil)
+                    self?.loadFiles()
+                    UIAlertController.showAlertWithOk(title: .localized("Success"), message: .localized("Successfully packaged \(file.name) as \(ipaFileName)"))
+                case .failure(let error):
+                    NotificationCenter.default.post(name: NSNotification.Name("ExtractionFailed"), object: nil)
+                    UIAlertController.showAlertWithOk(title: .localized("Error"), message: .localized("Failed to package IPA: \(error.localizedDescription)"))
+                }
+            }
+        }
+    }
+    
+    // MARK: - Helpers
+    private func sanitizeFileName(_ name: String) -> String {
+        let invalidCharacters = CharacterSet(charactersIn: "/:?*<>|\"\\")
+        return name.components(separatedBy: invalidCharacters).joined()
+    }
     
     private func generateUniqueFileName(for url: URL) -> URL {
         let fileManager = FileManager.default
@@ -311,62 +357,17 @@ class FilesViewModel: ObservableObject {
         var newURL: URL
         
         repeat {
-            let newFilename = pathExtension.isEmpty 
+            let newFilename = pathExtension.isEmpty
                 ? "\(filename) (\(counter))"
                 : "\(filename) (\(counter)).\(pathExtension)"
             newURL = directory.appendingPathComponent(newFilename)
             counter += 1
-        } while fileManager.fileExists(atPath: newURL.path) && counter < 1000 // Safety limit
+        } while fileManager.fileExists(atPath: newURL.path) && counter < 1000
         
         return newURL
     }
     
-    func extractArchive(_ file: FileItem) {
-        guard file.isArchive else { return }
-        
-        NotificationCenter.default.post(name: NSNotification.Name("ExtractionStarted"), object: nil)
-        
-        ExtractionService.extractArchive(file, to: currentDirectory) { [weak self] result in
-            DispatchQueue.main.async {
-                switch result {
-                case .success:
-                    NotificationCenter.default.post(name: NSNotification.Name("ExtractionCompleted"), object: nil)
-                    
-                    withAnimation {
-                        self?.loadFiles()
-                    }
-                    
-                    UIAlertController.showAlertWithOk(title: .localized("Success"), message: .localized("File extracted successfully"))
-                    
-                case .failure(let error):
-                    NotificationCenter.default.post(name: NSNotification.Name("ExtractionFailed"), object: nil)
-                    UIAlertController.showAlertWithOk(title: .localized("Error"), message: .localized("Error extracting archive: \(error.localizedDescription)"))
-                }
-            }
-        }
-    }
-    
-    func packageAppAsIPA(_ file: FileItem) {
-        guard file.isAppDirectory else { return }
-        
-        NotificationCenter.default.post(name: NSNotification.Name("ExtractionStarted"), object: nil)
-        
-        ExtractionService.packageAppAsIPA(file, to: currentDirectory) { [weak self] result in
-            DispatchQueue.main.async {
-                switch result {
-                case .success(let ipaFileName):
-                    NotificationCenter.default.post(name: NSNotification.Name("ExtractionCompleted"), object: nil)
-                    self?.loadFiles()
-                    UIAlertController.showAlertWithOk(title: .localized("Success"), message: .localized("Successfully packaged \(file.name) as \(ipaFileName)"))
-                    
-                case .failure(let error):
-                    NotificationCenter.default.post(name: NSNotification.Name("ExtractionFailed"), object: nil)
-                    UIAlertController.showAlertWithOk(title: .localized("Error"), message: .localized("Failed to package IPA: \(error.localizedDescription)"))
-                }
-            }
-        }
-    }
-    
+    // MARK: - Sort
     func updateSort(option: SortOption, ascending: Bool) {
         sortOption = option
         sortAscending = ascending
@@ -405,5 +406,4 @@ class FilesViewModel: ObservableObject {
         let ext = file.url.pathExtension
         return ext.isEmpty ? .localized("Unknown") : ext.lowercased()
     }
-    
-} 
+}
